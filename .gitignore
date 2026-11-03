@@ -1,0 +1,45 @@
+# ─── Hassas: ASLA commit edilmez ───
+# Kimlik/anahtar
+*.key
+*.pem
+sign/
+**/sign/
+auth_key*
+authkey*
+*secret*
+*token*
+config.local.*
+config.json
+
+# Cihaz izleri (MAC adresleri, seri no, bonded cihazlar)
+*.btsnoop
+btsnoop*
+bugreport*
+*.log
+dumpsys*
+
+# Derlenmiş paketler (config gömülü olabilir)
+*.rpk
+*.apk
+dist/
+build/
+.temp*/
+
+# Bağımlılıklar / ortam
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+
+# IDE / sistem
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Yerel yapılandırma — gerçek servis URLleri (README: config.js depoya gönderilmez)
+app/src/config.js
+app/src/common/logo.png

@@ -1,0 +1,167 @@
+<template>
+  <div class="app" onclick="onTap">
+    <text class="brand">nabız</text>
+    <text class="hero" style="color: {{ allColor }};">{{ allText }}</text>
+    <div class="list">
+      <block for="{{ rows }}">
+        <div class="svc">
+          <div class="left">
+            <div class="dot" style="background-color: {{ $item.color }};"></div>
+            <text class="name">{{ $item.name }}</text>
+          </div>
+          <text class="stat" style="color: {{ $item.color }};">{{ $item.line }}</text>
+        </div>
+      </block>
+    </div>
+    <text class="foot">{{ footText }}</text>
+  </div>
+</template>
+
+<script>
+import fetch from '@system.fetch'
+import vibrator from '@system.vibrator'
+import { SERVICES, INTERVAL_MS, FAIL_THRESHOLD } from '../../config.js'
+
+function pad2(n){ return n<10 ? '0'+n : ''+n }
+var AMBER='#ffd166', GREEN='#00ff88', RED='#ff5555'
+
+export default {
+  private: {
+    rows: [],
+    allText:'kontrol…', allColor:AMBER,
+    footText:'dokun = yenile'
+  },
+
+  onInit(){
+    this._timer = null
+    this._state = []
+    // Config'teki her servis icin bir satir + durum kaydi olustur
+    var r = [], s = []
+    for(var i=0;i<SERVICES.length;i++){
+      r.push({ name:SERVICES[i].name, line:'kontrol…', color:AMBER })
+      s.push({ url:SERVICES[i].url, fails:0, state:'na' })
+    }
+    this.rows = r
+    this._state = s
+  },
+  onShow(){ this._run(); if(!this._timer){ this._timer=setInterval(()=>this._run(), INTERVAL_MS||30000) } },
+  onHide(){ this._stop() },
+  onDestroy(){ this._stop() },
+  _stop(){ if(this._timer){ clearInterval(this._timer); this._timer=null } },
+  onTap(){ this._run() },
+
+  _buzz(kind){
+    var count = (kind==='down') ? 4 : 2
+    var i = 0
+    function pulse(){
+      try { vibrator.vibrate({ mode:'long' }) } catch(e){}
+      i++
+      if(i<count){ setTimeout(pulse, 420) }
+    }
+    pulse()
+  },
+
+  _run(){
+    for(var i=0;i<this._state.length;i++){ this._check(i) }
+  },
+
+  _setRow(i, line, color){
+    // Vela: dizi elemani alanini guncellemek icin set gerekir
+    var row = this.rows[i]
+    row.line = line; row.color = color
+    this.$set('rows[' + i + ']', row)
+  },
+
+  _evaluate(res){
+    if(!(res.code>=200 && res.code<300)) return { ok:false, note:'KAPALI ('+res.code+')' }
+    var obj=null
+    try { obj = (typeof res.data==='string') ? JSON.parse(res.data) : res.data } catch(e){ obj=null }
+    if(!obj || typeof obj!=='object') return { ok:false, note:'KAPALI (yanit?)' }
+    if(obj.ready !== undefined){
+      var down=[]
+      if(!obj.database) down.push('DB')
+      if(!obj.relay_server) down.push('Relay')
+      if(!obj.id_server) down.push('ID')
+      if(obj.ready && down.length===0) return { ok:true, note:'SAĞLIKLI ✓' }
+      return { ok:false, note:'SORUN: '+(down.join(' ')||'ready?') }
+    }
+    if(obj.status !== undefined){
+      if(obj.status==='ok'){
+        var fresh=true
+        if(obj.time){ var t=Date.parse(obj.time); if(!isNaN(t) && Math.abs(Date.now()-t)>300000) fresh=false }
+        return fresh ? { ok:true, note:'AYAKTA'+(obj.version?' · v'+obj.version:'') }
+                     : { ok:true, note:'AYAKTA (eski?)', warn:true }
+      }
+      return { ok:false, note:'SORUN (status)' }
+    }
+    return { ok:true, note:'AYAKTA' }
+  },
+
+  _check(i){
+    var self=this
+    var st=this._state[i]
+    var t0=Date.now()
+    fetch.fetch({
+      url:st.url, method:'GET',
+      success:function(res){
+        var ms=Date.now()-t0
+        var r=self._evaluate(res)
+        if(r.ok){
+          var wasDown=(st.state==='down')
+          st.fails=0
+          self._setRow(i, r.note+' · '+ms+' ms', r.warn?AMBER:GREEN)
+          st.state=r.warn?'warn':'up'
+          if(wasDown) self._buzz('recover')
+        } else {
+          self._fail(i, r.note)
+        }
+        self._overall()
+      },
+      fail:function(){ self._fail(i,'KAPALI'); self._overall() }
+    })
+  },
+
+  _fail(i, note){
+    var st=this._state[i]
+    var wasDown=(st.state==='down')
+    st.fails=(st.fails||0)+1
+    if(st.fails >= (FAIL_THRESHOLD||2)){
+      this._setRow(i, note, RED)
+      st.state='down'
+      if(!wasDown) this._buzz('down')
+    } else {
+      this._setRow(i, 'kontrol… ('+st.fails+'/'+(FAIL_THRESHOLD||2)+')', AMBER)
+      st.state='na'
+    }
+  },
+
+  _overall(){
+    var any={na:false,down:false,warn:false}
+    for(var i=0;i<this._state.length;i++){
+      var s=this._state[i].state
+      if(s==='na') any.na=true
+      else if(s==='down') any.down=true
+      else if(s==='warn') any.warn=true
+    }
+    var d=new Date()
+    this.footText='son '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds())+' · dokun'
+    if(any.na){ this.allText='kontrol…'; this.allColor=AMBER }
+    else if(any.down){ this.allText='SORUN VAR'; this.allColor=RED }
+    else if(any.warn){ this.allText='ŞÜPHELİ'; this.allColor=AMBER }
+    else { this.allText='TÜMÜ SAĞLIKLI'; this.allColor=GREEN }
+  }
+}
+</script>
+
+<style>
+.app{ width:390px; height:450px; flex-direction:column; align-items:center; justify-content:center; background-color:#080c14; }
+.brand{ color:#3fb6c8; font-size:22px; letter-spacing:6px; margin-bottom:14px; }
+.hero{ font-size:32px; margin-bottom:24px; }
+.list{ flex-direction:column; align-items:center; justify-content:center; }
+.svc{ width:310px; flex-direction:column; align-items:flex-start; justify-content:center; background-color:#0e1420; border-radius:18px; padding-left:20px; padding-right:20px; padding-top:12px; padding-bottom:12px; margin-bottom:14px; }
+.left{ flex-direction:row; align-items:center; justify-content:flex-start; margin-bottom:4px; }
+.dot{ width:16px; height:16px; border-radius:8px; margin-right:10px; }
+.name{ color:#cfd6e0; font-size:22px; }
+.stat{ font-size:20px; }
+.foot{ color:#5a6472; font-size:17px; margin-top:10px; }
+</style>
